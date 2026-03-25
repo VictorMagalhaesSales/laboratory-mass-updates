@@ -15,7 +15,7 @@ import java.util.concurrent.Executors;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class ConcurrencyLabService {
+public class ConcurrencyService {
 
     private final ReservaService reservaService;
 
