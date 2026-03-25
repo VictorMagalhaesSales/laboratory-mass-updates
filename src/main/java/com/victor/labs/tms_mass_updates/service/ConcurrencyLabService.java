@@ -23,18 +23,18 @@ public class ConcurrencyLabService {
      * Dispara N reservas concorrentes sobre o mesmo filtro usando lock otimista.
      * Cada thread usa um planejamentoId diferente.
      */
-    public List<ReservaResultDTO> simularConcorrenciaOtimista(FiltroDTO filtro, List<Integer> planejamentoIds) {
+    public List<ReservaResultDTO> simularConcorrenciaOtimista(FiltroDTO filtro, List<Long> planejamentoIds) {
         return executarConcorrencia(filtro, planejamentoIds, "OTIMISTA");
     }
 
     /**
      * Dispara N reservas concorrentes sobre o mesmo filtro usando lock pessimista.
      */
-    public List<ReservaResultDTO> simularConcorrenciaPessimista(FiltroDTO filtro, List<Integer> planejamentoIds) {
+    public List<ReservaResultDTO> simularConcorrenciaPessimista(FiltroDTO filtro, List<Long> planejamentoIds) {
         return executarConcorrencia(filtro, planejamentoIds, "PESSIMISTA");
     }
 
-    private List<ReservaResultDTO> executarConcorrencia(FiltroDTO filtro, List<Integer> planejamentoIds, String tipo) {
+    private List<ReservaResultDTO> executarConcorrencia(FiltroDTO filtro, List<Long> planejamentoIds, String tipo) {
         int n = planejamentoIds.size();
         log.info("[LAB] Iniciando simulação {} com {} threads concorrentes", tipo, n);
 
@@ -45,7 +45,7 @@ public class ConcurrencyLabService {
             CompletableFuture<ReservaResultDTO>[] futures = new CompletableFuture[n];
 
             for (int i = 0; i < n; i++) {
-                final Integer planId = planejamentoIds.get(i);
+                final Long planId = planejamentoIds.get(i);
                 futures[i] = CompletableFuture.supplyAsync(() -> {
                     try {
                         if ("OTIMISTA".equals(tipo)) {

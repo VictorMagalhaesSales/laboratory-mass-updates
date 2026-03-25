@@ -5,5 +5,5 @@ import lombok.Data;
 @Data
 public class ReservaRequestDTO {
     private FiltroDTO filtro;
-    private Integer planejamentoId;
+    private Long planejamentoId;
 }

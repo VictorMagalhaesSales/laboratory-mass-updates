@@ -1,6 +1,7 @@
 package com.victor.labs.tms_mass_updates.service;
 
 import com.victor.labs.tms_mass_updates.domain.DocumentoCarga;
+import com.victor.labs.tms_mass_updates.domain.PlanejamentoItem;
 import com.victor.labs.tms_mass_updates.domain.StatusDocumento;
 import com.victor.labs.tms_mass_updates.dto.FiltroDTO;
 import com.victor.labs.tms_mass_updates.dto.ReservaResultDTO;
@@ -26,7 +27,7 @@ public class ReservaService {
     private final PlanejamentoItemRepository planejamentoItemRepo;
 
     @Transactional
-    public ReservaResultDTO reservarComLockOtimista(FiltroDTO filtro, Integer planejamentoId) {
+    public ReservaResultDTO reservarComLockOtimista(FiltroDTO filtro, Long planejamentoId) {
         long inicio = System.currentTimeMillis();
         String threadName = Thread.currentThread().getName();
         log.info("[OTIMISTA][{}] Iniciando reserva para planejamento={}", threadName, planejamentoId);
@@ -51,8 +52,10 @@ public class ReservaService {
             documentoRepo.saveAll(documentos);
             documentoRepo.flush();
 
-            List<Integer> ids = documentos.stream().map(DocumentoCarga::getId).toList();
-            planejamentoItemRepo.inserirItensEmLote(planejamentoId, ids);
+            List<PlanejamentoItem> itens = documentos.stream()
+                    .map(doc -> new PlanejamentoItem(planejamentoId, doc.getId()))
+                    .toList();
+            planejamentoItemRepo.saveAll(itens);
 
             long tempoInsercao = System.currentTimeMillis() - inicioInsercao;
             long tempoTotal = System.currentTimeMillis() - inicio;
@@ -77,7 +80,7 @@ public class ReservaService {
     }
 
     @Transactional
-    public ReservaResultDTO reservarComLockPessimista(FiltroDTO filtro, Integer planejamentoId) {
+    public ReservaResultDTO reservarComLockPessimista(FiltroDTO filtro, Long planejamentoId) {
         long inicio = System.currentTimeMillis();
         String threadName = Thread.currentThread().getName();
         log.info("[PESSIMISTA][{}] Iniciando reserva para planejamento={}", threadName, planejamentoId);
@@ -102,8 +105,10 @@ public class ReservaService {
             documentoRepo.saveAll(documentos);
             documentoRepo.flush();
 
-            List<Integer> ids = documentos.stream().map(DocumentoCarga::getId).toList();
-            planejamentoItemRepo.inserirItensEmLote(planejamentoId, ids);
+            List<PlanejamentoItem> itens = documentos.stream()
+                    .map(doc -> new PlanejamentoItem(planejamentoId, doc.getId()))
+                    .toList();
+            planejamentoItemRepo.saveAll(itens);
 
             long tempoInsercao = System.currentTimeMillis() - inicioInsercao;
             long tempoTotal = System.currentTimeMillis() - inicio;
@@ -131,7 +136,7 @@ public class ReservaService {
         }
     }
 
-    private ReservaResultDTO buildResult(Integer planejamentoId, int qtd, long busca, long insercao, long total, boolean sucesso, String msg) {
+    private ReservaResultDTO buildResult(Long planejamentoId, int qtd, long busca, long insercao, long total, boolean sucesso, String msg) {
         return new ReservaResultDTO(planejamentoId, qtd, busca, insercao, total, sucesso, msg);
     }
 }

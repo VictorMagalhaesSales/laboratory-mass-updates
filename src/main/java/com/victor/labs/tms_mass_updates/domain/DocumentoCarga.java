@@ -1,5 +1,6 @@
 package com.victor.labs.tms_mass_updates.domain;
 
+import io.hypersistence.utils.hibernate.id.Tsid;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -15,8 +16,8 @@ import java.math.BigDecimal;
 public class DocumentoCarga {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    @Tsid
+    private Long id;
 
     @Column(name = "numero_documento", nullable = false, length = 50)
     private String numeroDocumento;

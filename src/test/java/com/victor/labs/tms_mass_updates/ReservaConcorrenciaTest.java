@@ -42,12 +42,13 @@ class ReservaConcorrenciaTest {
     void deveReservarComLockOtimista_apenasUmVencedor() {
         int totalThreads = 10;
         ExecutorService executor = Executors.newFixedThreadPool(totalThreads);
+        List<Long> planIds = getPlanejamentoIds();
 
         @SuppressWarnings("unchecked")
         CompletableFuture<ReservaResultDTO>[] futures = new CompletableFuture[totalThreads];
 
         for (int i = 0; i < totalThreads; i++) {
-            final int planId = i + 1;
+            final Long planId = planIds.get(i);
             futures[i] = CompletableFuture.supplyAsync(() -> {
                 try {
                     return reservaService.reservarComLockOtimista(filtro, planId);
@@ -73,12 +74,13 @@ class ReservaConcorrenciaTest {
     void deveReservarComLockPessimista_apenasUmVencedor() {
         int totalThreads = 10;
         ExecutorService executor = Executors.newFixedThreadPool(totalThreads);
+        List<Long> planIds = getPlanejamentoIds();
 
         @SuppressWarnings("unchecked")
         CompletableFuture<ReservaResultDTO>[] futures = new CompletableFuture[totalThreads];
 
         for (int i = 0; i < totalThreads; i++) {
-            final int planId = i + 1;
+            final Long planId = planIds.get(i);
             futures[i] = CompletableFuture.supplyAsync(() -> {
                 try {
                     return reservaService.reservarComLockPessimista(filtro, planId);
@@ -100,6 +102,10 @@ class ReservaConcorrenciaTest {
         validarResultadoConcorrencia(resultados);
     }
 
+    private List<Long> getPlanejamentoIds() {
+        return jdbc.queryForList("SELECT id FROM planejamento ORDER BY id", Long.class);
+    }
+
     private void validarResultadoConcorrencia(List<ReservaResultDTO> resultados) {
         long sucessos = resultados.stream().filter(ReservaResultDTO::isSucesso).count();
         long falhas = resultados.stream().filter(r -> !r.isSucesso()).count();
@@ -118,7 +124,7 @@ class ReservaConcorrenciaTest {
                 .filter(ReservaResultDTO::isSucesso).findFirst().orElseThrow();
         assertEquals(1000, vencedor.getDocumentosReservados());
 
-        Integer vencedorId = vencedor.getPlanejamentoId();
+        Long vencedorId = vencedor.getPlanejamentoId();
         Long itensVencedor = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM planejamento_item WHERE planejamento_id = ?",
                 Long.class, vencedorId);

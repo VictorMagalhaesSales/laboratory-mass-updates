@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class ReservaResultDTO {
-    private Integer planejamentoId;
+    private Long planejamentoId;
     private int documentosReservados;
     private long tempoBuscaMs;
     private long tempoInsercaoMs;
