@@ -9,13 +9,5 @@ SELECT
     1
 FROM generate_series(1, 1000) AS gs;
 
-INSERT INTO planejamento (usuario_id, status) VALUES (1, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (2, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (3, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (4, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (5, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (6, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (7, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (8, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (9, 'DRAFT');
-INSERT INTO planejamento (usuario_id, status) VALUES (10, 'DRAFT');
+INSERT INTO planejamento (usuario_id, status)
+SELECT gs, 'DRAFT' FROM generate_series(1, 20) gs;

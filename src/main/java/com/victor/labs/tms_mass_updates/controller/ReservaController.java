@@ -27,4 +27,11 @@ public class ReservaController {
                 request.getFiltro(), request.getPlanejamentoId());
         return ResponseEntity.ok(result);
     }
+
+    @PostMapping("/bulk")
+    public ResponseEntity<ReservaResultDTO> reservarBulk(@RequestBody ReservaRequestDTO request) {
+        ReservaResultDTO result = reservaService.reservarComBulkUpdate(
+                request.getFiltro(), request.getPlanejamentoId());
+        return ResponseEntity.ok(result);
+    }
 }

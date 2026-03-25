@@ -7,7 +7,9 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.Query;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Session;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -115,6 +117,41 @@ public class DocumentoCargaQueryRepository {
         @SuppressWarnings("unchecked")
         List<DocumentoCarga> result = query.getResultList();
         return result;
+    }
+
+    @Transactional
+    public int simularModificacaoExterna(FiltroDTO filtro) {
+        StringBuilder subquery = new StringBuilder(
+                "SELECT d.id FROM documento_carga d WHERE d.status = 'DISPONIVEL'");
+        List<Object> params = new ArrayList<>();
+        int idx = 1;
+
+        idx = appendFiltros(subquery, params, filtro, idx);
+
+        if (filtro.getLimit() != null && filtro.getLimit() > 0) {
+            subquery.append(" ORDER BY d.id LIMIT ?").append(idx);
+            params.add(filtro.getLimit());
+        } else {
+            subquery.append(" ORDER BY d.id");
+        }
+
+        String sql = "UPDATE documento_carga SET status = 'RESERVADO', versao = versao + 1 " +
+                     "WHERE id IN (" + subquery + ")";
+
+        Query query = em.createNativeQuery(sql);
+        for (int i = 0; i < params.size(); i++) {
+            query.setParameter(i + 1, params.get(i));
+        }
+        return query.executeUpdate();
+    }
+
+    public int reservarEmBulk(List<Long> ids) {
+        var query = em.unwrap(Session.class)
+                .createNativeMutationQuery(
+                        "UPDATE documento_carga SET status = 'RESERVADO', versao = versao + 1 " +
+                        "WHERE id IN (:ids) AND status = 'DISPONIVEL'");
+        query.setParameterList("ids", ids);
+        return query.executeUpdate();
     }
 
     private int appendFiltros(StringBuilder sql, List<Object> params, FiltroDTO filtro, int idx) {

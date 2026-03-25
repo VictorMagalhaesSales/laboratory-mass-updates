@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 @Service
 @Slf4j
@@ -123,6 +124,91 @@ public class ReservaService {
             log.warn("[PESSIMISTA][{}] VIOLAÇÃO DE CONSTRAINT para planejamento={} após {}ms: {}",
                     threadName, planejamentoId, tempoTotal, e.getMessage());
             throw e;
+        }
+    }
+
+    @Transactional
+    public ReservaResultDTO reservarComBulkUpdate(FiltroDTO filtro, Long planejamentoId) {
+        long inicio = System.currentTimeMillis();
+        String threadName = Thread.currentThread().getName();
+        log.info("[BULK][{}] Iniciando reserva para planejamento={}", threadName, planejamentoId);
+
+        long inicioBusca = System.currentTimeMillis();
+        List<DocumentoCarga> documentos = documentoQueryRepo.selecionarLoteParaReserva(filtro);
+        long tempoBusca = System.currentTimeMillis() - inicioBusca;
+        log.info("[BULK][{}] Busca concluída: {} documentos em {}ms", threadName, documentos.size(), tempoBusca);
+
+        if (documentos.isEmpty()) {
+            return buildResult(planejamentoId, 0, tempoBusca, 0,
+                    System.currentTimeMillis() - inicio, false, "Nenhum documento disponível para os filtros informados.");
+        }
+
+        List<Long> ids = documentos.stream().map(DocumentoCarga::getId).toList();
+
+        long inicioUpdate = System.currentTimeMillis();
+        int rowsAffected = documentoQueryRepo.reservarEmBulk(ids);
+
+        if (rowsAffected != ids.size()) {
+            throw new IllegalStateException(
+                    "CAS falhou: esperava " + ids.size() + " atualizações, mas obteve " + rowsAffected +
+                    ". " + (ids.size() - rowsAffected) + " documento(s) já reservado(s) por outro usuário.");
+        }
+
+        List<PlanejamentoItem> itens = ids.stream()
+                .map(docId -> new PlanejamentoItem(planejamentoId, docId))
+                .toList();
+        planejamentoItemRepo.saveAll(itens);
+
+        long tempoUpdate = System.currentTimeMillis() - inicioUpdate;
+        long tempoTotal = System.currentTimeMillis() - inicio;
+
+        log.info("[BULK][{}] Reserva concluída com sucesso: {} documentos | busca={}ms | update={}ms | total={}ms",
+                threadName, rowsAffected, tempoBusca, tempoUpdate, tempoTotal);
+
+        return buildResult(planejamentoId, rowsAffected, tempoBusca, tempoUpdate, tempoTotal, true, "Reserva realizada com sucesso (bulk CAS).");
+    }
+
+    @Transactional
+    public ReservaResultDTO reservarComLockOtimistaComDrift(
+            FiltroDTO filtro, Long planejamentoId,
+            CountDownLatch afterSelect, CountDownLatch beforeSave) {
+        long inicio = System.currentTimeMillis();
+        String threadName = Thread.currentThread().getName();
+        log.info("[DRIFT][{}] Iniciando reserva com drift simulado para planejamento={}", threadName, planejamentoId);
+
+        try {
+            List<DocumentoCarga> documentos = documentoQueryRepo.selecionarLoteParaReserva(filtro);
+
+            if (documentos.isEmpty()) {
+                afterSelect.countDown();
+                return buildResult(planejamentoId, 0, 0, 0,
+                        System.currentTimeMillis() - inicio, false, "Nenhum documento disponível.");
+            }
+
+            afterSelect.countDown();
+            beforeSave.await();
+
+            documentos.forEach(doc -> doc.setStatus(StatusDocumento.RESERVADO));
+            documentoRepo.saveAll(documentos);
+            documentoRepo.flush();
+
+            List<PlanejamentoItem> itens = documentos.stream()
+                    .map(doc -> new PlanejamentoItem(planejamentoId, doc.getId()))
+                    .toList();
+            planejamentoItemRepo.saveAll(itens);
+
+            long tempoTotal = System.currentTimeMillis() - inicio;
+            return buildResult(planejamentoId, documentos.size(), 0, 0, tempoTotal, true, "Reserva realizada com sucesso.");
+
+        } catch (ObjectOptimisticLockingFailureException e) {
+            long tempoTotal = System.currentTimeMillis() - inicio;
+            log.warn("[DRIFT][{}] CONFLITO DE VERSÃO (drift detectado) para planejamento={} após {}ms",
+                    threadName, planejamentoId, tempoTotal);
+            throw e;
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Simulação de drift interrompida", e);
         }
     }
 

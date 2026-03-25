@@ -10,11 +10,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.jdbc.Sql;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,43 +41,124 @@ class ReservaConcorrenciaTest {
         filtro.setLimit(1000);
     }
 
+    // ───────────────────────────────────────────────────────────────────
+    // Testes existentes (10 threads)
+    // ───────────────────────────────────────────────────────────────────
+
     @Test
     void deveReservarComLockOtimista_apenasUmVencedor() {
-        int totalThreads = 10;
-        ExecutorService executor = Executors.newFixedThreadPool(totalThreads);
-        List<Long> planIds = getPlanejamentoIds();
-
-        @SuppressWarnings("unchecked")
-        CompletableFuture<ReservaResultDTO>[] futures = new CompletableFuture[totalThreads];
-
-        for (int i = 0; i < totalThreads; i++) {
-            final Long planId = planIds.get(i);
-            futures[i] = CompletableFuture.supplyAsync(() -> {
-                try {
-                    return reservaService.reservarComLockOtimista(filtro, planId);
-                } catch (Exception e) {
-                    return new ReservaResultDTO(planId, 0, 0, 0, 0, false,
-                            e.getClass().getSimpleName() + ": " + e.getMessage());
-                }
-            }, executor);
-        }
-
-        CompletableFuture.allOf(futures).join();
-        executor.shutdown();
-
-        List<ReservaResultDTO> resultados = new ArrayList<>();
-        for (var f : futures) {
-            resultados.add(f.join());
-        }
-
-        validarResultadoConcorrencia(resultados);
+        List<ReservaResultDTO> resultados = executarConcorrencia(10, "OTIMISTA");
+        validarResultadoConcorrencia(resultados, 10);
     }
 
     @Test
     void deveReservarComLockPessimista_apenasUmVencedor() {
-        int totalThreads = 10;
+        List<ReservaResultDTO> resultados = executarConcorrencia(10, "PESSIMISTA");
+        validarResultadoConcorrencia(resultados, 10);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // Bulk UPDATE (3a estratégia) — 10 threads
+    // ───────────────────────────────────────────────────────────────────
+
+    @Test
+    void deveReservarComBulkUpdate_apenasUmVencedor() {
+        List<ReservaResultDTO> resultados = executarConcorrencia(10, "BULK");
+        validarResultadoConcorrencia(resultados, 10);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // Drift: dados mudam entre SELECT e UPDATE (otimista)
+    // ───────────────────────────────────────────────────────────────────
+
+    @Test
+    void deveDetectarDriftEntreSelecaoEReserva_otimista() throws Exception {
+        List<Long> planIds = getPlanejamentoIds();
+        CountDownLatch afterSelect = new CountDownLatch(1);
+        CountDownLatch beforeSave = new CountDownLatch(1);
+
+        CompletableFuture<ReservaResultDTO> threadA = CompletableFuture.supplyAsync(() -> {
+            try {
+                return reservaService.reservarComLockOtimistaComDrift(
+                        filtro, planIds.get(0), afterSelect, beforeSave);
+            } catch (Exception e) {
+                return new ReservaResultDTO(planIds.get(0), 0, 0, 0, 0, false,
+                        e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+        });
+
+        assertTrue(afterSelect.await(5, TimeUnit.SECONDS),
+                "Thread A deveria ter concluído o SELECT em até 5s");
+
+        jdbc.update("UPDATE documento_carga SET status = 'RESERVADO', versao = versao + 1 WHERE regiao = 'SUL'");
+
+        beforeSave.countDown();
+
+        ReservaResultDTO result = threadA.get(10, TimeUnit.SECONDS);
+
+        System.out.println("=== RESULTADO DO DRIFT ===");
+        System.out.printf("  sucesso=%b, msg=%s%n", result.isSucesso(), result.getMensagem());
+
+        assertFalse(result.isSucesso(), "Deve falhar devido ao drift entre SELECT e UPDATE");
+        assertTrue(result.getMensagem().contains("OptimisticLockingFailureException"),
+                "Deve reportar conflito de versão");
+
+        Long docsReservados = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM documento_carga WHERE status = 'RESERVADO'", Long.class);
+        assertEquals(1000L, docsReservados, "Todos os docs devem estar RESERVADO pela modificação externa");
+
+        Long totalItens = jdbc.queryForObject("SELECT COUNT(*) FROM planejamento_item", Long.class);
+        assertEquals(0L, totalItens, "Nenhum item deve ter sido inserido (rollback)");
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // Filtros parcialmente sobrepostos
+    // ───────────────────────────────────────────────────────────────────
+
+    @Test
+    void deveReservarComLockOtimista_filtrosParcialmenteSobrepostos() {
+        List<ReservaResultDTO> resultados = executarComFiltrosSobrepostos("OTIMISTA");
+        validarResultadoSobreposto(resultados, "OTIMISTA");
+    }
+
+    @Test
+    void deveReservarComLockPessimista_filtrosParcialmenteSobrepostos() {
+        List<ReservaResultDTO> resultados = executarComFiltrosSobrepostos("PESSIMISTA");
+        validarResultadoSobreposto(resultados, "PESSIMISTA");
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // 20 threads concorrentes (saturação do pool HikariCP)
+    // ───────────────────────────────────────────────────────────────────
+
+    @Test
+    void deveReservarComLockOtimista_20ThreadsConcorrentes() {
+        List<ReservaResultDTO> resultados = executarConcorrencia(20, "OTIMISTA");
+        validarResultadoConcorrencia(resultados, 20);
+    }
+
+    @Test
+    void deveReservarComLockPessimista_20ThreadsConcorrentes() {
+        List<ReservaResultDTO> resultados = executarConcorrencia(20, "PESSIMISTA");
+        validarResultadoConcorrencia(resultados, 20);
+    }
+
+    @Test
+    void deveReservarComBulkUpdate_20ThreadsConcorrentes() {
+        List<ReservaResultDTO> resultados = executarConcorrencia(20, "BULK");
+        validarResultadoConcorrencia(resultados, 20);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // Métodos auxiliares
+    // ───────────────────────────────────────────────────────────────────
+
+    private List<ReservaResultDTO> executarConcorrencia(int totalThreads, String tipo) {
         ExecutorService executor = Executors.newFixedThreadPool(totalThreads);
         List<Long> planIds = getPlanejamentoIds();
+
+        assertTrue(planIds.size() >= totalThreads,
+                "Precisa de pelo menos " + totalThreads + " planejamentos no test-data.sql");
 
         @SuppressWarnings("unchecked")
         CompletableFuture<ReservaResultDTO>[] futures = new CompletableFuture[totalThreads];
@@ -83,7 +167,12 @@ class ReservaConcorrenciaTest {
             final Long planId = planIds.get(i);
             futures[i] = CompletableFuture.supplyAsync(() -> {
                 try {
-                    return reservaService.reservarComLockPessimista(filtro, planId);
+                    return switch (tipo) {
+                        case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtro, planId);
+                        case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtro, planId);
+                        case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId);
+                        default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
+                    };
                 } catch (Exception e) {
                     return new ReservaResultDTO(planId, 0, 0, 0, 0, false,
                             e.getClass().getSimpleName() + ": " + e.getMessage());
@@ -98,27 +187,73 @@ class ReservaConcorrenciaTest {
         for (var f : futures) {
             resultados.add(f.join());
         }
+        return resultados;
+    }
 
-        validarResultadoConcorrencia(resultados);
+    private List<ReservaResultDTO> executarComFiltrosSobrepostos(String tipo) {
+        List<Long> planIds = getPlanejamentoIds();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        FiltroDTO filtroA = new FiltroDTO();
+        filtroA.setRegiao("SUL");
+        filtroA.setLimit(500);
+
+        FiltroDTO filtroB = new FiltroDTO();
+        filtroB.setRegiao("SUL");
+        filtroB.setPesoMinimo(new BigDecimal("800"));
+        filtroB.setLimit(500);
+
+        CompletableFuture<ReservaResultDTO> futureA = CompletableFuture.supplyAsync(() -> {
+            try {
+                return switch (tipo) {
+                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroA, planIds.get(0));
+                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroA, planIds.get(0));
+                    default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
+                };
+            } catch (Exception e) {
+                return new ReservaResultDTO(planIds.get(0), 0, 0, 0, 0, false,
+                        e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+        }, executor);
+
+        CompletableFuture<ReservaResultDTO> futureB = CompletableFuture.supplyAsync(() -> {
+            try {
+                return switch (tipo) {
+                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroB, planIds.get(1));
+                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroB, planIds.get(1));
+                    default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
+                };
+            } catch (Exception e) {
+                return new ReservaResultDTO(planIds.get(1), 0, 0, 0, 0, false,
+                        e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+        }, executor);
+
+        CompletableFuture.allOf(futureA, futureB).join();
+        executor.shutdown();
+
+        return List.of(futureA.join(), futureB.join());
     }
 
     private List<Long> getPlanejamentoIds() {
         return jdbc.queryForList("SELECT id FROM planejamento ORDER BY id", Long.class);
     }
 
-    private void validarResultadoConcorrencia(List<ReservaResultDTO> resultados) {
+    private void validarResultadoConcorrencia(List<ReservaResultDTO> resultados, int totalThreads) {
         long sucessos = resultados.stream().filter(ReservaResultDTO::isSucesso).count();
         long falhas = resultados.stream().filter(r -> !r.isSucesso()).count();
 
-        System.out.println("=== RESULTADO DA SIMULAÇÃO ===");
+        System.out.println("=== RESULTADO DA SIMULAÇÃO (" + totalThreads + " threads) ===");
         System.out.println("Sucessos: " + sucessos);
         System.out.println("Falhas: " + falhas);
         resultados.forEach(r -> System.out.printf(
-                "  Planejamento %d: sucesso=%b, docs=%d, msg=%s%n",
-                r.getPlanejamentoId(), r.isSucesso(), r.getDocumentosReservados(), r.getMensagem()));
+                "  Planejamento %d: sucesso=%b, docs=%d, totalMs=%d, msg=%s%n",
+                r.getPlanejamentoId(), r.isSucesso(), r.getDocumentosReservados(),
+                r.getTempoTotalMs(), r.getMensagem()));
 
         assertEquals(1, sucessos, "Exatamente 1 planejamento deve ter sucesso");
-        assertEquals(9, falhas, "Exatamente 9 planejamentos devem falhar");
+        assertEquals(totalThreads - 1, falhas,
+                "Exatamente " + (totalThreads - 1) + " planejamentos devem falhar");
 
         ReservaResultDTO vencedor = resultados.stream()
                 .filter(ReservaResultDTO::isSucesso).findFirst().orElseThrow();
@@ -146,5 +281,39 @@ class ReservaConcorrenciaTest {
                 "SELECT COUNT(*) FROM (SELECT documento_id FROM planejamento_item " +
                 "GROUP BY documento_id HAVING COUNT(*) > 1) sub", Long.class);
         assertEquals(0L, duplicatas, "Não deve haver duplicatas em planejamento_item");
+    }
+
+    private void validarResultadoSobreposto(List<ReservaResultDTO> resultados, String tipo) {
+        ReservaResultDTO resultA = resultados.get(0);
+        ReservaResultDTO resultB = resultados.get(1);
+
+        System.out.println("=== FILTROS PARCIALMENTE SOBREPOSTOS (" + tipo + ") ===");
+        System.out.printf("  Thread A (SUL, limit=500):         sucesso=%b, docs=%d, totalMs=%d, msg=%s%n",
+                resultA.isSucesso(), resultA.getDocumentosReservados(),
+                resultA.getTempoTotalMs(), resultA.getMensagem());
+        System.out.printf("  Thread B (SUL, peso>=800, limit=500): sucesso=%b, docs=%d, totalMs=%d, msg=%s%n",
+                resultB.isSucesso(), resultB.getDocumentosReservados(),
+                resultB.getTempoTotalMs(), resultB.getMensagem());
+
+        assertTrue(resultA.isSucesso() || resultB.isSucesso(),
+                "Pelo menos uma thread deve ter sucesso");
+
+        Long duplicatas = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM (SELECT documento_id FROM planejamento_item " +
+                "GROUP BY documento_id HAVING COUNT(*) > 1) sub", Long.class);
+        assertEquals(0L, duplicatas, "Não deve haver duplicatas em planejamento_item");
+
+        Long totalItens = jdbc.queryForObject("SELECT COUNT(*) FROM planejamento_item", Long.class);
+        Long docsReservados = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM documento_carga WHERE status = 'RESERVADO'", Long.class);
+        assertEquals(totalItens, docsReservados,
+                "Total de itens em planejamento_item deve bater com docs RESERVADO");
+
+        int docsReservadosIndividuais = resultados.stream()
+                .filter(ReservaResultDTO::isSucesso)
+                .mapToInt(ReservaResultDTO::getDocumentosReservados)
+                .sum();
+        assertEquals(docsReservados.intValue(), docsReservadosIndividuais,
+                "Soma dos docs reservados por threads bem-sucedidas deve bater com banco");
     }
 }
