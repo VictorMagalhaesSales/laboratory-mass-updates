@@ -11,3 +11,7 @@ SELECT
     (ARRAY['NORTE', 'SUL', 'LESTE', 'OESTE', 'CENTRO'])[1 + ((gs - 1) % 5)],
     1
 FROM generate_series(1, 500000) AS gs;
+
+
+INSERT INTO planejamento (usuario_id, status) 
+SELECT gs, 'DRAFT' FROM generate_series(1, 10) gs;

@@ -1,3 +1,27 @@
 spring:
   application:
     name: tms-mass-updates
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/tms?reWriteBatchedInserts=true
+    username: postgres
+    password: postgres
+    hikari:
+      maximum-pool-size: 20
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 10000
+        order_inserts: true
+        order_updates: true
+
+logging:
+  level:
+    com.victor.labs: DEBUG
+    org.hibernate.SQL: DEBUG

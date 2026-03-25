@@ -1,0 +1,153 @@
+package com.victor.labs.tms_mass_updates.repository;
+
+import com.victor.labs.tms_mass_updates.domain.DocumentoCarga;
+import com.victor.labs.tms_mass_updates.dto.FiltroDTO;
+import com.victor.labs.tms_mass_updates.dto.SumarioDTO;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Repository;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
+@Repository
+@Slf4j
+public class DocumentoCargaQueryRepository {
+
+    @PersistenceContext
+    private EntityManager em;
+
+    public List<DocumentoCarga> buscarDisponiveis(FiltroDTO filtro, int pagina, int tamanhoPagina) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT d.* FROM documento_carga d WHERE d.status = 'DISPONIVEL'");
+        List<Object> params = new ArrayList<>();
+        int idx = 1;
+
+        idx = appendFiltros(sql, params, filtro, idx);
+
+        sql.append(" ORDER BY d.id LIMIT ?").append(idx++);
+        params.add(tamanhoPagina);
+        sql.append(" OFFSET ?").append(idx);
+        params.add((long) pagina * tamanhoPagina);
+
+        Query query = em.createNativeQuery(sql.toString(), DocumentoCarga.class);
+        for (int i = 0; i < params.size(); i++) {
+            query.setParameter(i + 1, params.get(i));
+        }
+
+        @SuppressWarnings("unchecked")
+        List<DocumentoCarga> result = query.getResultList();
+        return result;
+    }
+
+    public SumarioDTO calcularSumario(FiltroDTO filtro) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT COUNT(*), COALESCE(SUM(d.peso),0), COALESCE(SUM(d.valor),0), COALESCE(SUM(d.volume),0) " +
+                "FROM documento_carga d WHERE d.status = 'DISPONIVEL'");
+        List<Object> params = new ArrayList<>();
+        int idx = 1;
+        appendFiltros(sql, params, filtro, idx);
+
+        Query query = em.createNativeQuery(sql.toString());
+        for (int i = 0; i < params.size(); i++) {
+            query.setParameter(i + 1, params.get(i));
+        }
+
+        Object[] row = (Object[]) query.getSingleResult();
+        return new SumarioDTO(
+                ((Number) row[0]).longValue(),
+                (BigDecimal) row[1],
+                (BigDecimal) row[2],
+                (BigDecimal) row[3]
+        );
+    }
+
+    public List<DocumentoCarga> selecionarLoteParaReserva(FiltroDTO filtro) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT d.* FROM documento_carga d WHERE d.status = 'DISPONIVEL'");
+        List<Object> params = new ArrayList<>();
+        int idx = 1;
+
+        idx = appendFiltros(sql, params, filtro, idx);
+
+        if (filtro.getLimit() != null && filtro.getLimit() > 0) {
+            sql.append(" ORDER BY d.id LIMIT ?").append(idx);
+            params.add(filtro.getLimit());
+        } else {
+            sql.append(" ORDER BY d.id");
+        }
+
+        Query query = em.createNativeQuery(sql.toString(), DocumentoCarga.class);
+        for (int i = 0; i < params.size(); i++) {
+            query.setParameter(i + 1, params.get(i));
+        }
+
+        @SuppressWarnings("unchecked")
+        List<DocumentoCarga> result = query.getResultList();
+        return result;
+    }
+
+    public List<DocumentoCarga> selecionarLoteComLockPessimista(FiltroDTO filtro) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT d.* FROM documento_carga d WHERE d.status = 'DISPONIVEL'");
+        List<Object> params = new ArrayList<>();
+        int idx = 1;
+
+        idx = appendFiltros(sql, params, filtro, idx);
+
+        if (filtro.getLimit() != null && filtro.getLimit() > 0) {
+            sql.append(" ORDER BY d.id LIMIT ?").append(idx);
+            params.add(filtro.getLimit());
+        } else {
+            sql.append(" ORDER BY d.id");
+        }
+
+        sql.append(" FOR UPDATE");
+
+        Query query = em.createNativeQuery(sql.toString(), DocumentoCarga.class);
+        for (int i = 0; i < params.size(); i++) {
+            query.setParameter(i + 1, params.get(i));
+        }
+
+        @SuppressWarnings("unchecked")
+        List<DocumentoCarga> result = query.getResultList();
+        return result;
+    }
+
+    private int appendFiltros(StringBuilder sql, List<Object> params, FiltroDTO filtro, int idx) {
+        if (filtro == null) return idx;
+
+        if (filtro.getRegiao() != null && !filtro.getRegiao().isBlank()) {
+            sql.append(" AND d.regiao = ?").append(idx++);
+            params.add(filtro.getRegiao());
+        }
+        if (filtro.getPesoMinimo() != null) {
+            sql.append(" AND d.peso >= ?").append(idx++);
+            params.add(filtro.getPesoMinimo());
+        }
+        if (filtro.getPesoMaximo() != null) {
+            sql.append(" AND d.peso <= ?").append(idx++);
+            params.add(filtro.getPesoMaximo());
+        }
+        if (filtro.getValorMinimo() != null) {
+            sql.append(" AND d.valor >= ?").append(idx++);
+            params.add(filtro.getValorMinimo());
+        }
+        if (filtro.getValorMaximo() != null) {
+            sql.append(" AND d.valor <= ?").append(idx++);
+            params.add(filtro.getValorMaximo());
+        }
+        if (filtro.getVolumeMinimo() != null) {
+            sql.append(" AND d.volume >= ?").append(idx++);
+            params.add(filtro.getVolumeMinimo());
+        }
+        if (filtro.getVolumeMaximo() != null) {
+            sql.append(" AND d.volume <= ?").append(idx++);
+            params.add(filtro.getVolumeMaximo());
+        }
+        return idx;
+    }
+}
