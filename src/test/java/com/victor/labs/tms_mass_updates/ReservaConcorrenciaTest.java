@@ -10,7 +10,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.jdbc.Sql;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -38,7 +37,6 @@ class ReservaConcorrenciaTest {
     void setUp() {
         filtro = new FiltroDTO();
         filtro.setRegiao("SUL");
-        filtro.setLimit(1000);
     }
 
     // ───────────────────────────────────────────────────────────────────
@@ -194,22 +192,6 @@ class ReservaConcorrenciaTest {
     }
 
     // ───────────────────────────────────────────────────────────────────
-    // Filtros parcialmente sobrepostos
-    // ───────────────────────────────────────────────────────────────────
-
-    @Test
-    void deveReservarComLockOtimista_filtrosParcialmenteSobrepostos() {
-        List<ReservaResultDTO> resultados = executarComFiltrosSobrepostos("OTIMISTA");
-        validarResultadoSobreposto(resultados, "OTIMISTA");
-    }
-
-    @Test
-    void deveReservarComLockPessimista_filtrosParcialmenteSobrepostos() {
-        List<ReservaResultDTO> resultados = executarComFiltrosSobrepostos("PESSIMISTA");
-        validarResultadoSobreposto(resultados, "PESSIMISTA");
-    }
-
-    // ───────────────────────────────────────────────────────────────────
     // 20 threads concorrentes (saturação do pool HikariCP)
     // ───────────────────────────────────────────────────────────────────
 
@@ -272,51 +254,6 @@ class ReservaConcorrenciaTest {
         return resultados;
     }
 
-    private List<ReservaResultDTO> executarComFiltrosSobrepostos(String tipo) {
-        List<Long> planIds = getPlanejamentoIds();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-
-        FiltroDTO filtroA = new FiltroDTO();
-        filtroA.setRegiao("SUL");
-        filtroA.setLimit(500);
-
-        FiltroDTO filtroB = new FiltroDTO();
-        filtroB.setRegiao("SUL");
-        filtroB.setPesoMinimo(new BigDecimal("800"));
-        filtroB.setLimit(500);
-
-        CompletableFuture<ReservaResultDTO> futureA = CompletableFuture.supplyAsync(() -> {
-            try {
-                return switch (tipo) {
-                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroA, planIds.get(0), null);
-                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroA, planIds.get(0), null);
-                    default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
-                };
-            } catch (Exception e) {
-                return new ReservaResultDTO(planIds.get(0), 0, 0, 0, 0, false,
-                        e.getClass().getSimpleName() + ": " + e.getMessage());
-            }
-        }, executor);
-
-        CompletableFuture<ReservaResultDTO> futureB = CompletableFuture.supplyAsync(() -> {
-            try {
-                return switch (tipo) {
-                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroB, planIds.get(1), null);
-                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroB, planIds.get(1), null);
-                    default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
-                };
-            } catch (Exception e) {
-                return new ReservaResultDTO(planIds.get(1), 0, 0, 0, 0, false,
-                        e.getClass().getSimpleName() + ": " + e.getMessage());
-            }
-        }, executor);
-
-        CompletableFuture.allOf(futureA, futureB).join();
-        executor.shutdown();
-
-        return List.of(futureA.join(), futureB.join());
-    }
-
     private List<Long> getPlanejamentoIds() {
         return jdbc.queryForList("SELECT id FROM planejamento ORDER BY id", Long.class);
     }
@@ -365,37 +302,4 @@ class ReservaConcorrenciaTest {
         assertEquals(0L, duplicatas, "Não deve haver duplicatas em planejamento_item");
     }
 
-    private void validarResultadoSobreposto(List<ReservaResultDTO> resultados, String tipo) {
-        ReservaResultDTO resultA = resultados.get(0);
-        ReservaResultDTO resultB = resultados.get(1);
-
-        System.out.println("=== FILTROS PARCIALMENTE SOBREPOSTOS (" + tipo + ") ===");
-        System.out.printf("  Thread A (SUL, limit=500):         sucesso=%b, docs=%d, totalMs=%d, msg=%s%n",
-                resultA.isSucesso(), resultA.getDocumentosReservados(),
-                resultA.getTempoTotalMs(), resultA.getMensagem());
-        System.out.printf("  Thread B (SUL, peso>=800, limit=500): sucesso=%b, docs=%d, totalMs=%d, msg=%s%n",
-                resultB.isSucesso(), resultB.getDocumentosReservados(),
-                resultB.getTempoTotalMs(), resultB.getMensagem());
-
-        assertTrue(resultA.isSucesso() || resultB.isSucesso(),
-                "Pelo menos uma thread deve ter sucesso");
-
-        Long duplicatas = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM (SELECT documento_id FROM planejamento_item " +
-                "GROUP BY documento_id HAVING COUNT(*) > 1) sub", Long.class);
-        assertEquals(0L, duplicatas, "Não deve haver duplicatas em planejamento_item");
-
-        Long totalItens = jdbc.queryForObject("SELECT COUNT(*) FROM planejamento_item", Long.class);
-        Long docsReservados = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM documento_carga WHERE status = 'RESERVADO'", Long.class);
-        assertEquals(totalItens, docsReservados,
-                "Total de itens em planejamento_item deve bater com docs RESERVADO");
-
-        int docsReservadosIndividuais = resultados.stream()
-                .filter(ReservaResultDTO::isSucesso)
-                .mapToInt(ReservaResultDTO::getDocumentosReservados)
-                .sum();
-        assertEquals(docsReservados.intValue(), docsReservadosIndividuais,
-                "Soma dos docs reservados por threads bem-sucedidas deve bater com banco");
-    }
 }

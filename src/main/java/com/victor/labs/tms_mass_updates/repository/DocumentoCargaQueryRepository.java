@@ -75,12 +75,7 @@ public class DocumentoCargaQueryRepository {
 
         idx = appendFiltros(sql, params, filtro, idx);
 
-        if (filtro.getLimit() != null && filtro.getLimit() > 0) {
-            sql.append(" ORDER BY d.id LIMIT ?").append(idx);
-            params.add(filtro.getLimit());
-        } else {
-            sql.append(" ORDER BY d.id");
-        }
+        sql.append(" ORDER BY d.id");
 
         Query query = em.createNativeQuery(sql.toString(), DocumentoCarga.class);
         for (int i = 0; i < params.size(); i++) {
@@ -100,13 +95,7 @@ public class DocumentoCargaQueryRepository {
 
         idx = appendFiltros(sql, params, filtro, idx);
 
-        if (filtro.getLimit() != null && filtro.getLimit() > 0) {
-            sql.append(" ORDER BY d.id LIMIT ?").append(idx);
-            params.add(filtro.getLimit());
-        } else {
-            sql.append(" ORDER BY d.id");
-        }
-
+        sql.append(" ORDER BY d.id");
         sql.append(" FOR UPDATE");
 
         Query query = em.createNativeQuery(sql.toString(), DocumentoCarga.class);
@@ -128,12 +117,7 @@ public class DocumentoCargaQueryRepository {
 
         idx = appendFiltros(subquery, params, filtro, idx);
 
-        if (filtro.getLimit() != null && filtro.getLimit() > 0) {
-            subquery.append(" ORDER BY d.id LIMIT ?").append(idx);
-            params.add(filtro.getLimit());
-        } else {
-            subquery.append(" ORDER BY d.id");
-        }
+        subquery.append(" ORDER BY d.id");
 
         String sql = "UPDATE documento_carga SET status = 'RESERVADO', versao = versao + 1 " +
                      "WHERE id IN (" + subquery + ")";
@@ -160,30 +144,6 @@ public class DocumentoCargaQueryRepository {
         if (filtro.getRegiao() != null && !filtro.getRegiao().isBlank()) {
             sql.append(" AND d.regiao = ?").append(idx++);
             params.add(filtro.getRegiao());
-        }
-        if (filtro.getPesoMinimo() != null) {
-            sql.append(" AND d.peso >= ?").append(idx++);
-            params.add(filtro.getPesoMinimo());
-        }
-        if (filtro.getPesoMaximo() != null) {
-            sql.append(" AND d.peso <= ?").append(idx++);
-            params.add(filtro.getPesoMaximo());
-        }
-        if (filtro.getValorMinimo() != null) {
-            sql.append(" AND d.valor >= ?").append(idx++);
-            params.add(filtro.getValorMinimo());
-        }
-        if (filtro.getValorMaximo() != null) {
-            sql.append(" AND d.valor <= ?").append(idx++);
-            params.add(filtro.getValorMaximo());
-        }
-        if (filtro.getVolumeMinimo() != null) {
-            sql.append(" AND d.volume >= ?").append(idx++);
-            params.add(filtro.getVolumeMinimo());
-        }
-        if (filtro.getVolumeMaximo() != null) {
-            sql.append(" AND d.volume <= ?").append(idx++);
-            params.add(filtro.getVolumeMaximo());
         }
         return idx;
     }
