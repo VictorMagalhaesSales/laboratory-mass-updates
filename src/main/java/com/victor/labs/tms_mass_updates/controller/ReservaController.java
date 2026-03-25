@@ -34,4 +34,11 @@ public class ReservaController {
                 request.getFiltro(), request.getPlanejamentoId(), request.getQuantidadeEsperada());
         return ResponseEntity.ok(result);
     }
+
+    @PostMapping("/otimista-jdbc")
+    public ResponseEntity<ReservaResultDTO> reservarOtimistaJdbc(@RequestBody ReservaRequestDTO request) {
+        ReservaResultDTO result = reservaService.reservarComJdbcBatch(
+                request.getFiltro(), request.getPlanejamentoId(), request.getQuantidadeEsperada());
+        return ResponseEntity.ok(result);
+    }
 }

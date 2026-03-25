@@ -68,6 +68,16 @@ class ReservaConcorrenciaTest {
     }
 
     // ───────────────────────────────────────────────────────────────────
+    // JDBC Batch (4a estratégia) — 10 threads
+    // ───────────────────────────────────────────────────────────────────
+
+    @Test
+    void deveReservarComJdbcBatch_apenasUmVencedor() {
+        List<ReservaResultDTO> resultados = executarConcorrencia(10, "JDBC_BATCH");
+        validarResultadoConcorrencia(resultados, 10);
+    }
+
+    // ───────────────────────────────────────────────────────────────────
     // Drift: dados mudam entre SELECT e UPDATE (otimista)
     // ───────────────────────────────────────────────────────────────────
 
@@ -231,6 +241,12 @@ class ReservaConcorrenciaTest {
         validarResultadoConcorrencia(resultados, 20);
     }
 
+    @Test
+    void deveReservarComJdbcBatch_20ThreadsConcorrentes() {
+        List<ReservaResultDTO> resultados = executarConcorrencia(20, "JDBC_BATCH");
+        validarResultadoConcorrencia(resultados, 20);
+    }
+
     // ───────────────────────────────────────────────────────────────────
     // Métodos auxiliares
     // ───────────────────────────────────────────────────────────────────
@@ -253,6 +269,7 @@ class ReservaConcorrenciaTest {
                         case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtro, planId, null);
                         case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtro, planId, null);
                         case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId, null);
+                        case "JDBC_BATCH" -> reservaService.reservarComJdbcBatch(filtro, planId, null);
                         default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
                     };
                 } catch (Exception e) {
