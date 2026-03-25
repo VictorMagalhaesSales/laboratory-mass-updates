@@ -113,9 +113,9 @@ public class ConcurrencyService {
                 futures[i] = CompletableFuture.supplyAsync(() -> {
                     try {
                         return switch (tipo) {
-                            case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtro, planId);
-                            case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtro, planId);
-                            case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId);
+                            case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtro, planId, null);
+                            case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtro, planId, null);
+                            case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId, null);
                             default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
                         };
                     } catch (Exception e) {

@@ -112,6 +112,88 @@ class ReservaConcorrenciaTest {
     }
 
     // ───────────────────────────────────────────────────────────────────
+    // Validação de quantidade esperada
+    // ───────────────────────────────────────────────────────────────────
+
+    @Test
+    void deveRejeitarReserva_quandoQuantidadeDivergenteOtimista() {
+        List<Long> planIds = getPlanejamentoIds();
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> reservaService.reservarComLockOtimista(filtro, planIds.get(0), 999));
+
+        assertTrue(ex.getMessage().contains("Quantidade de documentos divergente"),
+                "Mensagem deve indicar divergência de quantidade");
+        assertTrue(ex.getMessage().contains("999"),
+                "Mensagem deve conter a quantidade esperada");
+        assertTrue(ex.getMessage().contains("1000"),
+                "Mensagem deve conter a quantidade encontrada");
+
+        Long docsReservados = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM documento_carga WHERE status = 'RESERVADO'", Long.class);
+        assertEquals(0L, docsReservados, "Nenhum documento deve ter sido reservado");
+
+        Long totalItens = jdbc.queryForObject("SELECT COUNT(*) FROM planejamento_item", Long.class);
+        assertEquals(0L, totalItens, "Nenhum item deve ter sido inserido");
+    }
+
+    @Test
+    void deveRejeitarReserva_quandoQuantidadeDivergentePessimista() {
+        List<Long> planIds = getPlanejamentoIds();
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> reservaService.reservarComLockPessimista(filtro, planIds.get(0), 999));
+
+        assertTrue(ex.getMessage().contains("Quantidade de documentos divergente"),
+                "Mensagem deve indicar divergência de quantidade");
+    }
+
+    @Test
+    void deveRejeitarReserva_quandoQuantidadeDivergenteBulk() {
+        List<Long> planIds = getPlanejamentoIds();
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> reservaService.reservarComBulkUpdate(filtro, planIds.get(0), 999));
+
+        assertTrue(ex.getMessage().contains("Quantidade de documentos divergente"),
+                "Mensagem deve indicar divergência de quantidade");
+    }
+
+    @Test
+    void devePermitirReserva_quandoQuantidadeEsperadaCorreta() {
+        List<Long> planIds = getPlanejamentoIds();
+
+        ReservaResultDTO result = reservaService.reservarComLockOtimista(filtro, planIds.get(0), 1000);
+
+        assertTrue(result.isSucesso(), "Deve ter sucesso quando a quantidade bate");
+        assertEquals(1000, result.getDocumentosReservados());
+    }
+
+    @Test
+    void devePermitirReserva_quandoQuantidadeEsperadaNula() {
+        List<Long> planIds = getPlanejamentoIds();
+
+        ReservaResultDTO result = reservaService.reservarComLockOtimista(filtro, planIds.get(0), null);
+
+        assertTrue(result.isSucesso(), "Deve ter sucesso quando quantidadeEsperada é null (compatibilidade)");
+        assertEquals(1000, result.getDocumentosReservados());
+    }
+
+    @Test
+    void deveRejeitarReserva_quandoDocumentosForamReservadosPorOutroUsuario() {
+        List<Long> planIds = getPlanejamentoIds();
+
+        jdbc.update("UPDATE documento_carga SET status = 'RESERVADO', versao = versao + 1 " +
+                "WHERE regiao = 'SUL' AND id <= 5");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> reservaService.reservarComBulkUpdate(filtro, planIds.get(0), 1000));
+
+        assertTrue(ex.getMessage().contains("Quantidade de documentos divergente"),
+                "Mensagem deve indicar divergência de quantidade");
+    }
+
+    // ───────────────────────────────────────────────────────────────────
     // Filtros parcialmente sobrepostos
     // ───────────────────────────────────────────────────────────────────
 
@@ -168,9 +250,9 @@ class ReservaConcorrenciaTest {
             futures[i] = CompletableFuture.supplyAsync(() -> {
                 try {
                     return switch (tipo) {
-                        case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtro, planId);
-                        case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtro, planId);
-                        case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId);
+                        case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtro, planId, null);
+                        case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtro, planId, null);
+                        case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId, null);
                         default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
                     };
                 } catch (Exception e) {
@@ -206,8 +288,8 @@ class ReservaConcorrenciaTest {
         CompletableFuture<ReservaResultDTO> futureA = CompletableFuture.supplyAsync(() -> {
             try {
                 return switch (tipo) {
-                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroA, planIds.get(0));
-                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroA, planIds.get(0));
+                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroA, planIds.get(0), null);
+                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroA, planIds.get(0), null);
                     default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
                 };
             } catch (Exception e) {
@@ -219,8 +301,8 @@ class ReservaConcorrenciaTest {
         CompletableFuture<ReservaResultDTO> futureB = CompletableFuture.supplyAsync(() -> {
             try {
                 return switch (tipo) {
-                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroB, planIds.get(1));
-                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroB, planIds.get(1));
+                    case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtroB, planIds.get(1), null);
+                    case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtroB, planIds.get(1), null);
                     default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
                 };
             } catch (Exception e) {

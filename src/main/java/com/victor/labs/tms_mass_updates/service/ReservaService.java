@@ -28,7 +28,7 @@ public class ReservaService {
     private final PlanejamentoItemRepository planejamentoItemRepo;
 
     @Transactional
-    public ReservaResultDTO reservarComLockOtimista(FiltroDTO filtro, Long planejamentoId) {
+    public ReservaResultDTO reservarComLockOtimista(FiltroDTO filtro, Long planejamentoId, Integer quantidadeEsperada) {
         long inicio = System.currentTimeMillis();
         String threadName = Thread.currentThread().getName();
         log.info("[OTIMISTA][{}] Iniciando reserva para planejamento={}", threadName, planejamentoId);
@@ -45,13 +45,14 @@ public class ReservaService {
                         System.currentTimeMillis() - inicio, false, "Nenhum documento disponível para os filtros informados.");
             }
 
+            validarQuantidadeEsperada(quantidadeEsperada, documentos.size());
             validarTodosDisponiveis(documentos);
 
             long inicioInsercao = System.currentTimeMillis();
 
             documentos.forEach(doc -> doc.setStatus(StatusDocumento.RESERVADO));
             documentoRepo.saveAll(documentos);
-            documentoRepo.flush();
+            documentoRepo.flush(); // Antecipar detecção de ObjectOptimisticLockingFailureException
 
             List<PlanejamentoItem> itens = documentos.stream()
                     .map(doc -> new PlanejamentoItem(planejamentoId, doc.getId()))
@@ -81,7 +82,7 @@ public class ReservaService {
     }
 
     @Transactional
-    public ReservaResultDTO reservarComLockPessimista(FiltroDTO filtro, Long planejamentoId) {
+    public ReservaResultDTO reservarComLockPessimista(FiltroDTO filtro, Long planejamentoId, Integer quantidadeEsperada) {
         long inicio = System.currentTimeMillis();
         String threadName = Thread.currentThread().getName();
         log.info("[PESSIMISTA][{}] Iniciando reserva para planejamento={}", threadName, planejamentoId);
@@ -98,13 +99,13 @@ public class ReservaService {
                         System.currentTimeMillis() - inicio, false, "Nenhum documento disponível para os filtros informados.");
             }
 
+            validarQuantidadeEsperada(quantidadeEsperada, documentos.size());
             validarTodosDisponiveis(documentos);
 
             long inicioInsercao = System.currentTimeMillis();
 
             documentos.forEach(doc -> doc.setStatus(StatusDocumento.RESERVADO));
             documentoRepo.saveAll(documentos);
-            documentoRepo.flush();
 
             List<PlanejamentoItem> itens = documentos.stream()
                     .map(doc -> new PlanejamentoItem(planejamentoId, doc.getId()))
@@ -128,7 +129,7 @@ public class ReservaService {
     }
 
     @Transactional
-    public ReservaResultDTO reservarComBulkUpdate(FiltroDTO filtro, Long planejamentoId) {
+    public ReservaResultDTO reservarComBulkUpdate(FiltroDTO filtro, Long planejamentoId, Integer quantidadeEsperada) {
         long inicio = System.currentTimeMillis();
         String threadName = Thread.currentThread().getName();
         log.info("[BULK][{}] Iniciando reserva para planejamento={}", threadName, planejamentoId);
@@ -142,6 +143,8 @@ public class ReservaService {
             return buildResult(planejamentoId, 0, tempoBusca, 0,
                     System.currentTimeMillis() - inicio, false, "Nenhum documento disponível para os filtros informados.");
         }
+
+        validarQuantidadeEsperada(quantidadeEsperada, documentos.size());
 
         List<Long> ids = documentos.stream().map(DocumentoCarga::getId).toList();
 
@@ -190,7 +193,7 @@ public class ReservaService {
 
             documentos.forEach(doc -> doc.setStatus(StatusDocumento.RESERVADO));
             documentoRepo.saveAll(documentos);
-            documentoRepo.flush();
+            documentoRepo.flush(); // Antecipar detecção de ObjectOptimisticLockingFailureException
 
             List<PlanejamentoItem> itens = documentos.stream()
                     .map(doc -> new PlanejamentoItem(planejamentoId, doc.getId()))
@@ -209,6 +212,15 @@ public class ReservaService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Simulação de drift interrompida", e);
+        }
+    }
+
+    private void validarQuantidadeEsperada(Integer quantidadeEsperada, int quantidadeRetornada) {
+        if (quantidadeEsperada != null && quantidadeRetornada != quantidadeEsperada) {
+            throw new IllegalStateException(
+                    "Quantidade de documentos divergente: esperava " + quantidadeEsperada
+                    + ", mas encontrou " + quantidadeRetornada
+                    + ". Os dados podem ter sido alterados entre a consulta e a reserva.");
         }
     }
 

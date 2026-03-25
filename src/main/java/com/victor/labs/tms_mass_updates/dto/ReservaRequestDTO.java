@@ -6,4 +6,5 @@ import lombok.Data;
 public class ReservaRequestDTO {
     private FiltroDTO filtro;
     private Long planejamentoId;
+    private Integer quantidadeEsperada;
 }

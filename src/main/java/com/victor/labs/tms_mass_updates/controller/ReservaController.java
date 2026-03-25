@@ -17,21 +17,21 @@ public class ReservaController {
     @PostMapping("/otimista")
     public ResponseEntity<ReservaResultDTO> reservarOtimista(@RequestBody ReservaRequestDTO request) {
         ReservaResultDTO result = reservaService.reservarComLockOtimista(
-                request.getFiltro(), request.getPlanejamentoId());
+                request.getFiltro(), request.getPlanejamentoId(), request.getQuantidadeEsperada());
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/pessimista")
     public ResponseEntity<ReservaResultDTO> reservarPessimista(@RequestBody ReservaRequestDTO request) {
         ReservaResultDTO result = reservaService.reservarComLockPessimista(
-                request.getFiltro(), request.getPlanejamentoId());
+                request.getFiltro(), request.getPlanejamentoId(), request.getQuantidadeEsperada());
         return ResponseEntity.ok(result);
     }
 
     @PostMapping("/bulk")
     public ResponseEntity<ReservaResultDTO> reservarBulk(@RequestBody ReservaRequestDTO request) {
         ReservaResultDTO result = reservaService.reservarComBulkUpdate(
-                request.getFiltro(), request.getPlanejamentoId());
+                request.getFiltro(), request.getPlanejamentoId(), request.getQuantidadeEsperada());
         return ResponseEntity.ok(result);
     }
 }
