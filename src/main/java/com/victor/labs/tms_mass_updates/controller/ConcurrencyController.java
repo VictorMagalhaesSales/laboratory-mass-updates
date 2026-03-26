@@ -38,6 +38,13 @@ public class ConcurrencyController {
         return ResponseEntity.ok(resultados);
     }
 
+    @PostMapping("/jdbc-batch")
+    public ResponseEntity<List<ReservaResultDTO>> simularJdbcBatch(@RequestBody ConcurrencyRequestDTO request) {
+        List<ReservaResultDTO> resultados = concurrencyService.simularConcorrenciaJdbcBatch(
+                request.getFiltro(), request.getPlanejamentoIds());
+        return ResponseEntity.ok(resultados);
+    }
+
     @PostMapping("/drift")
     public ResponseEntity<List<ReservaResultDTO>> simularDrift(@RequestBody ReservaRequestDTO request) {
         List<ReservaResultDTO> resultados = concurrencyService.simularDrift(

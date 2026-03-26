@@ -46,6 +46,13 @@ public class ConcurrencyService {
     }
 
     /**
+     * Dispara N reservas concorrentes usando bulk UPDATE + JdbcTemplate batch INSERT.
+     */
+    public List<ReservaResultDTO> simularConcorrenciaJdbcBatch(FiltroDTO filtro, List<Long> planejamentoIds) {
+        return executarConcorrencia(filtro, planejamentoIds, "JDBC_BATCH");
+    }
+
+    /**
      * Simula drift: Thread A faz SELECT (otimista, sem lock), pausa,
      * uma modificação externa commita as mesmas linhas, e Thread A tenta salvar.
      * Resultado esperado: Thread A falha com conflito de versão.
@@ -115,8 +122,9 @@ public class ConcurrencyService {
                         return switch (tipo) {
                             case "OTIMISTA" -> reservaService.reservarComLockOtimista(filtro, planId, null);
                             case "PESSIMISTA" -> reservaService.reservarComLockPessimista(filtro, planId, null);
-                            case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId, null);
-                            default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
+                        case "BULK" -> reservaService.reservarComBulkUpdate(filtro, planId, null);
+                        case "JDBC_BATCH" -> reservaService.reservarComJdbcBatch(filtro, planId, null);
+                        default -> throw new IllegalArgumentException("Tipo desconhecido: " + tipo);
                         };
                     } catch (Exception e) {
                         log.warn("[LAB][{}] Falha no planejamento={}: {}", tipo, planId, e.getMessage());

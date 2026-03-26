@@ -8,6 +8,7 @@ import com.victor.labs.tms_mass_updates.dto.ReservaResultDTO;
 import com.victor.labs.tms_mass_updates.repository.DocumentoCargaQueryRepository;
 import com.victor.labs.tms_mass_updates.repository.DocumentoCargaRepository;
 import com.victor.labs.tms_mass_updates.repository.PlanejamentoItemRepository;
+import com.victor.labs.tms_mass_updates.repository.ReservaJdbcRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -26,6 +27,7 @@ public class ReservaService {
     private final DocumentoCargaQueryRepository documentoQueryRepo;
     private final DocumentoCargaRepository documentoRepo;
     private final PlanejamentoItemRepository planejamentoItemRepo;
+    private final ReservaJdbcRepository reservaJdbcRepo;
 
     @Transactional
     public ReservaResultDTO reservarComLockOtimista(FiltroDTO filtro, Long planejamentoId, Integer quantidadeEsperada) {
@@ -169,6 +171,47 @@ public class ReservaService {
                 threadName, rowsAffected, tempoBusca, tempoUpdate, tempoTotal);
 
         return buildResult(planejamentoId, rowsAffected, tempoBusca, tempoUpdate, tempoTotal, true, "Reserva realizada com sucesso (bulk CAS).");
+    }
+
+    @Transactional
+    public ReservaResultDTO reservarComJdbcBatch(FiltroDTO filtro, Long planejamentoId, Integer quantidadeEsperada) {
+        long inicio = System.currentTimeMillis();
+        String threadName = Thread.currentThread().getName();
+        log.info("[JDBC-BATCH][{}] Iniciando reserva para planejamento={}", threadName, planejamentoId);
+
+        long inicioBusca = System.currentTimeMillis();
+        List<DocumentoCarga> documentos = documentoQueryRepo.selecionarLoteParaReserva(filtro);
+        long tempoBusca = System.currentTimeMillis() - inicioBusca;
+        log.info("[JDBC-BATCH][{}] Busca concluída: {} documentos em {}ms", threadName, documentos.size(), tempoBusca);
+
+        if (documentos.isEmpty()) {
+            return buildResult(planejamentoId, 0, tempoBusca, 0,
+                    System.currentTimeMillis() - inicio, false, "Nenhum documento disponível para os filtros informados.");
+        }
+
+        validarQuantidadeEsperada(quantidadeEsperada, documentos.size());
+
+        List<Long> ids = documentos.stream().map(DocumentoCarga::getId).toList();
+
+        long inicioUpdate = System.currentTimeMillis();
+        int rowsAffected = reservaJdbcRepo.updateDocumentosEmBulk(ids);
+
+        if (rowsAffected != ids.size()) {
+            throw new IllegalStateException(
+                    "CAS falhou: esperava " + ids.size() + " atualizações, mas obteve " + rowsAffected +
+                    ". " + (ids.size() - rowsAffected) + " documento(s) já reservado(s) por outro usuário.");
+        }
+
+        reservaJdbcRepo.insertPlanejamentoItensEmBatch(planejamentoId, ids);
+
+        long tempoUpdate = System.currentTimeMillis() - inicioUpdate;
+        long tempoTotal = System.currentTimeMillis() - inicio;
+
+        log.info("[JDBC-BATCH][{}] Reserva concluída: {} documentos | busca={}ms | update+insert={}ms | total={}ms",
+                threadName, rowsAffected, tempoBusca, tempoUpdate, tempoTotal);
+
+        return buildResult(planejamentoId, rowsAffected, tempoBusca, tempoUpdate, tempoTotal, true,
+                "Reserva realizada com sucesso (JDBC batch).");
     }
 
     @Transactional
