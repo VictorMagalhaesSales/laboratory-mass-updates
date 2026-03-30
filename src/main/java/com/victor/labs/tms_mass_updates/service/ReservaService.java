@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -148,18 +150,19 @@ public class ReservaService {
 
         validarQuantidadeEsperada(quantidadeEsperada, documentos.size());
 
-        List<Long> ids = documentos.stream().map(DocumentoCarga::getId).toList();
+        Map<Long, Integer> idVersaoMap = documentos.stream()
+                .collect(Collectors.toMap(DocumentoCarga::getId, DocumentoCarga::getVersao));
 
         long inicioUpdate = System.currentTimeMillis();
-        int rowsAffected = documentoQueryRepo.reservarEmBulk(ids);
+        int rowsAffected = documentoQueryRepo.reservarEmBulk(idVersaoMap);
 
-        if (rowsAffected != ids.size()) {
+        if (rowsAffected != idVersaoMap.size()) {
             throw new IllegalStateException(
-                    "CAS falhou: esperava " + ids.size() + " atualizações, mas obteve " + rowsAffected +
-                    ". " + (ids.size() - rowsAffected) + " documento(s) já reservado(s) por outro usuário.");
+                    "CAS falhou: esperava " + idVersaoMap.size() + " atualizações, mas obteve " + rowsAffected +
+                    ". " + (idVersaoMap.size() - rowsAffected) + " documento(s) já reservado(s) por outro usuário.");
         }
 
-        List<PlanejamentoItem> itens = ids.stream()
+        List<PlanejamentoItem> itens = idVersaoMap.keySet().stream()
                 .map(docId -> new PlanejamentoItem(planejamentoId, docId))
                 .toList();
         planejamentoItemRepo.saveAll(itens);
@@ -191,15 +194,17 @@ public class ReservaService {
 
         validarQuantidadeEsperada(quantidadeEsperada, documentos.size());
 
-        List<Long> ids = documentos.stream().map(DocumentoCarga::getId).toList();
+        Map<Long, Integer> idVersaoMap = documentos.stream()
+                .collect(Collectors.toMap(DocumentoCarga::getId, DocumentoCarga::getVersao));
+        List<Long> ids = List.copyOf(idVersaoMap.keySet());
 
         long inicioUpdate = System.currentTimeMillis();
-        int rowsAffected = reservaJdbcRepo.updateDocumentosEmBulk(ids);
+        int rowsAffected = reservaJdbcRepo.updateDocumentosEmBulk(idVersaoMap);
 
-        if (rowsAffected != ids.size()) {
+        if (rowsAffected != idVersaoMap.size()) {
             throw new IllegalStateException(
-                    "CAS falhou: esperava " + ids.size() + " atualizações, mas obteve " + rowsAffected +
-                    ". " + (ids.size() - rowsAffected) + " documento(s) já reservado(s) por outro usuário.");
+                    "CAS falhou: esperava " + idVersaoMap.size() + " atualizações, mas obteve " + rowsAffected +
+                    ". " + (idVersaoMap.size() - rowsAffected) + " documento(s) já reservado(s) por outro usuário.");
         }
 
         reservaJdbcRepo.insertPlanejamentoItensEmBatch(planejamentoId, ids);

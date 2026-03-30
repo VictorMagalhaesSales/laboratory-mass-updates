@@ -6,7 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Repository
 @Slf4j
@@ -21,19 +23,28 @@ public class ReservaJdbcRepository {
      * UPDATE nativo em bulk com CAS (Compare-And-Swap).
      * Retorna a quantidade de linhas efetivamente atualizadas.
      */
-    public int updateDocumentosEmBulk(List<Long> ids) {
-        if (ids.isEmpty()) return 0;
+    public int updateDocumentosEmBulk(Map<Long, Integer> idVersaoMap) {
+        if (idVersaoMap.isEmpty()) return 0;
 
-        StringBuilder sql = new StringBuilder(
-                "UPDATE documento_carga SET status = 'RESERVADO', versao = versao + 1 " +
-                "WHERE status = 'DISPONIVEL' AND id IN (");
-        for (int i = 0; i < ids.size(); i++) {
-            if (i > 0) sql.append(',');
-            sql.append('?');
+        StringBuilder values = new StringBuilder();
+        List<Object> params = new ArrayList<>();
+        boolean first = true;
+        for (var entry : idVersaoMap.entrySet()) {
+            if (!first) values.append(',');
+            values.append("(?,?)");
+            params.add(entry.getKey());
+            params.add(entry.getValue());
+            first = false;
         }
-        sql.append(')');
 
-        return jdbcTemplate.update(sql.toString(), ids.toArray());
+        String sql = "UPDATE documento_carga dc " +
+                "SET status = 'RESERVADO', versao = dc.versao + 1 " +
+                "FROM (VALUES " + values + ") AS expected(id, versao) " +
+                "WHERE dc.id = expected.id " +
+                "AND dc.versao = expected.versao " +
+                "AND dc.status = 'DISPONIVEL'";
+
+        return jdbcTemplate.update(sql, params.toArray());
     }
 
     /**

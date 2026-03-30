@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Repository
 @Slf4j
@@ -129,12 +130,32 @@ public class DocumentoCargaQueryRepository {
         return query.executeUpdate();
     }
 
-    public int reservarEmBulk(List<Long> ids) {
-        var query = em.unwrap(Session.class)
-                .createNativeMutationQuery(
-                        "UPDATE documento_carga SET status = 'RESERVADO', versao = versao + 1 " +
-                        "WHERE id IN (:ids) AND status = 'DISPONIVEL'");
-        query.setParameterList("ids", ids);
+    public int reservarEmBulk(Map<Long, Integer> idVersaoMap) {
+        if (idVersaoMap.isEmpty()) return 0;
+
+        StringBuilder values = new StringBuilder();
+        List<Object> params = new ArrayList<>();
+        boolean first = true;
+        int idx = 1;
+        for (var entry : idVersaoMap.entrySet()) {
+            if (!first) values.append(',');
+            values.append("(?").append(idx++).append(",?").append(idx++).append(')');
+            params.add(entry.getKey());
+            params.add(entry.getValue());
+            first = false;
+        }
+
+        String sql = "UPDATE documento_carga dc " +
+                "SET status = 'RESERVADO', versao = dc.versao + 1 " +
+                "FROM (VALUES " + values + ") AS expected(id, versao) " +
+                "WHERE dc.id = expected.id " +
+                "AND dc.versao = expected.versao " +
+                "AND dc.status = 'DISPONIVEL'";
+
+        Query query = em.createNativeQuery(sql);
+        for (int i = 0; i < params.size(); i++) {
+            query.setParameter(i + 1, params.get(i));
+        }
         return query.executeUpdate();
     }
 
