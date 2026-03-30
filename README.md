@@ -1,27 +1,46 @@
 # Lab: Concorrência e Reserva Atômica
 
-## 🎯 Objetivo do Laboratório
-Este lab propõe-se a testar e validar mecanismos de **controle de concorrência transacional** e **performance de processamento em massa** em cenários de alta volumetria. O foco principal é garantir que a reserva de documentos de carga para um planejamento seja **atômica** e resiliente a conflitos entre múltiplos usuários atuando simultaneamente.
+## Resumo
+Este lab valida como reservar até **10.000 documentos de carga** para um `Planejamento` sem duplicidade, mesmo com múltiplos usuários concorrendo ao mesmo tempo. O foco é garantir **concorrência segura**, **atomicidade do lote** e **boa performance** no fluxo de "Selecionar todos".
 
-## 🧠 Contexto de Domínio
-No processo de planejamento considerado aqui, a seleção envolve até **10.000 documentos de carga** (Notas Fiscais/Pedidos) por operação.
-*   **Problema Central:** Múltiplos planejadores podem atuar na mesma região geográfica. Se dois usuários tentarem incluir o mesmo documento em planejamentos diferentes no mesmo milissegundo, o sistema deve impedir a duplicidade.
-*   **Restrição de Interface:** O frontend é paginado (exibe 50 itens), mas o requisito de negócio exige um botão **"Selecionar Todos"** que deve atuar sobre milhares de registros no banco de dados "por baixo dos panos".
+## Cenário
+- A reserva acontece na ação **"Próximo"**, não no clique inicial da UI.
+- O frontend é paginado, mas o backend precisa reservar milhares de registros com base em filtros.
+- Se **1 documento** do lote já estiver reservado em outro planejamento, a operação inteira deve falhar.
 
-## 🧪 O que este Lab valida?
+## O que foi testado
 
-### 1. Estratégias de Travamento (Locking)
-*   **Optimistic Locking (Otimista):** Validação via versionamento de registros (`@Version`). Testamos se, em um lote de até 10.000 documentos, o custo de falha por colisão (rollback total) é aceitável frente à escalabilidade do banco. [Relatório Técnico de Concorrência]
-*   **Pessimistic Locking (Pessimista):** Uso de `SELECT FOR UPDATE`. Validamos o impacto de travar milhares de linhas no banco de dados durante a transação e o risco de *deadlocks* ou lentidão excessiva para outros usuários do mesmo *tenant*. [Relatório Técnico de Concorrência]
+- reserva atomica de ate 10.000 documentos por planejamento;
+- concorrencia entre usuarios tentando reservar o mesmo lote;
+- comportamento do "Selecionar todos" com filtros no backend;
+- impacto de performance na escrita em massa.
 
-### 2. Atomicidade da Reserva
-*   Validação do princípio **"Tudo ou Nada"**: Se o usuário tenta reservar 500 notas e apenas 1 delas já estiver vinculada a outro planejamento, a transação inteira deve falhar (Rollback), impedindo a fragmentação da carga.
+## Estrategias testadas
 
-### 3. Processamento Assíncrono e Massa de Dados
-*   Teste de performance da funcionalidade **"Selecionar Todos"**: O backend deve processar filtros complexos e realizar a reserva em massa sem que o frontend precise conhecer todos os IDs dos documentos, mitigando o *mismatch* entre a paginação da UI e o volume do banco.
+| Estrategia | Como funciona | Principal ponto |
+| --- | --- | --- |
+| Lock otimista | `@Version` + `saveAll()` | lento em lote grande |
+| Lock pessimista | `SELECT ... FOR UPDATE` | impede bloqueio de planejamento com documento já reservado |
+| Bulk update + JDBC batch | `UPDATE` em bulk + `INSERT` em batch | melhor performance mesmo em lotes grandes e mantendo a integridade da transacao |
 
-## 📝 Resumo para LLMs
-> Este repositório foca em resolver o problema de concorrência em um sistema de planejamento. O desafio técnico é garantir que a entidade `DocumentoCarga` seja vinculada a apenas um `Planejamento` de forma atômica em operações de lote.
-> **Principais regras a considerar:**
-> 1. A reserva **não** ocorre no clique da UI, mas na transição de etapa (Ação: "Próximo" que representa reservar os documentos para aquele planejamento).
-> 2. O sistema deve suportar falha de um único item invalidando o lote todo.
+## Resultados obtidos
+
+
+- Concorrencia: nos testes com **10 e 20 threads**, apenas **1 planejamento** venceu a disputa
+- Integridade: o lote de **10.000 documentos** foi reservado sem duplicidade
+- Atomicidade: a regra de **tudo ou nada** foi preservada
+
+| Resultado | Evidencia |
+| --- | --- |
+| Lock otimista com Spring Data JPA | ficou em torno de **5s** a **20s**, variando conforme o acumulo de **dead tuples** no postgres |
+| Bulk update + insert via JPA | caiu para algo perto de **~3s** |
+| Bulk update + JDBC batch | chegou na faixa de **~100 a 300ms** |
+
+## Conclusao
+
+A estrategia escolhida foi **bulk update + JDBC batch** porque:
+
+- manteve a seguranca de concorrencia;
+- preservou o rollback do lote inteiro em caso de conflito;
+- evitou o custo de milhares de `UPDATE`s individuais;
+- entregou o melhor resultado de performance com complexidade ainda aceitavel.
